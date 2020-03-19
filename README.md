@@ -1,0 +1,2 @@
+# Von-Karman-vortex-street-modeling-by-the-Navier-Stokes-equations
+n fluid dynamics, a Von Karman vortex street is a repeating pattern of swirling vortices caused by the unsteady separation of flow of a fluid around blunt bodies. It is named after the engineer and fluid dynamicist Theodore von Karman. For the simulation, we propose to simulate the Navier-Stokes equation into a rectangular domain with a circular hole of a given diameter
