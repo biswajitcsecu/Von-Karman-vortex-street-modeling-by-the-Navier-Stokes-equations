@@ -1,0 +1,182 @@
+<html>
+<head>
+<title>VonKarmanVortexNavierStokes.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #121314;}
+.s1 { color: #7f1e62; font-style: italic;}
+.s2 { color: #002fa6;}
+.s3 { color: #008080; font-weight: bold;}
+.s4 { color: #1649e0;}
+.s5 { color: #0037a6;}
+</style>
+</head>
+<body bgcolor="#ffffff">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#c0c0c0" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+VonKarmanVortexNavierStokes.py</font>
+</center></td></tr></table>
+<pre>
+<span class="s1"># coding=utf-8</span>
+<span class="s2">from </span><span class="s0">__future__ </span><span class="s2">import  </span><span class="s0">print_function, division</span>
+<span class="s2">import </span><span class="s0">numpy </span><span class="s2">as </span><span class="s0">np</span>
+<span class="s2">import </span><span class="s0">sympy </span><span class="s2">as </span><span class="s0">sp</span>
+<span class="s2">import </span><span class="s0">pylbm</span>
+<span class="s2">import </span><span class="s0">sys</span>
+<span class="s2">import  </span><span class="s0">warnings</span>
+<span class="s0">warnings.filterwarnings(</span><span class="s3">'ignore'</span><span class="s0">)</span>
+
+<span class="s0">filename = </span><span class="s3">&quot;out&quot;</span>
+<span class="s0">path= </span><span class="s3">&quot;/home/denvex&quot;</span>
+
+
+<span class="s2">def </span><span class="s0">printProgress (iteration, total, prefix = </span><span class="s3">''</span><span class="s0">, suffix = </span><span class="s3">''</span><span class="s0">, decimals = </span><span class="s4">1</span><span class="s0">, barLength = </span><span class="s4">100</span><span class="s0">):</span>
+    <span class="s0">formatStr       = </span><span class="s3">&quot;{0:.&quot; </span><span class="s0">+ str(decimals) + </span><span class="s3">&quot;f}&quot;</span>
+    <span class="s0">percents        = formatStr.format(</span><span class="s4">100 </span><span class="s0">* (iteration / float(total)))</span>
+    <span class="s0">filledLength    = int(round(barLength * iteration / float(total)))</span>
+    <span class="s0">bar             = </span><span class="s3">'*' </span><span class="s0">* filledLength + </span><span class="s3">'-' </span><span class="s0">* (barLength - filledLength)</span>
+    <span class="s0">sys.stdout.write(</span><span class="s3">'</span><span class="s5">\r</span><span class="s3">%s |%s| %s%s %s' </span><span class="s0">% (prefix, bar, percents, </span><span class="s3">'%'</span><span class="s0">, suffix)),</span>
+    <span class="s0">sys.stdout.flush()</span>
+    <span class="s2">if </span><span class="s0">iteration == total:</span>
+        <span class="s0">sys.stdout.write(</span><span class="s3">'</span><span class="s5">\n</span><span class="s3">'</span><span class="s0">)</span>
+        <span class="s0">sys.stdout.flush()</span>
+
+<span class="s0">h5_save = </span><span class="s2">False</span>
+
+<span class="s0">X, Y, LA = sp.symbols(</span><span class="s3">'X, Y, LA'</span><span class="s0">)</span>
+<span class="s0">rho, qx, qy = sp.symbols(</span><span class="s3">'rho, qx, qy'</span><span class="s0">)</span>
+
+<span class="s2">def </span><span class="s0">bc_rect(f, m, x, y, rhoo, uo):</span>
+    <span class="s0">m[rho] = </span><span class="s4">0.</span>
+    <span class="s0">m[qx] = rhoo*uo</span>
+    <span class="s0">m[qy] = </span><span class="s4">0.</span>
+
+<span class="s2">def </span><span class="s0">vorticity(sol):</span>
+    <span class="s0">qx_n = sol.m[qx]</span>
+    <span class="s0">qy_n = sol.m[qy]</span>
+    <span class="s0">vort = np.abs(qx_n[</span><span class="s4">1</span><span class="s0">:-</span><span class="s4">1</span><span class="s0">, </span><span class="s4">2</span><span class="s0">:] - qx_n[</span><span class="s4">1</span><span class="s0">:-</span><span class="s4">1</span><span class="s0">, :-</span><span class="s4">2</span><span class="s0">]</span>
+                  <span class="s0">- qy_n[</span><span class="s4">2</span><span class="s0">:, </span><span class="s4">1</span><span class="s0">:-</span><span class="s4">1</span><span class="s0">] + qy_n[:-</span><span class="s4">2</span><span class="s0">, </span><span class="s4">1</span><span class="s0">:-</span><span class="s4">1</span><span class="s0">])</span>
+    <span class="s2">return </span><span class="s0">vort.T</span>
+
+<span class="s2">def </span><span class="s0">save(mpi_topo, x, y, m, num):</span>
+    <span class="s0">h5 = pylbm.H5File(mpi_topo, filename, path, num)</span>
+    <span class="s0">h5.set_grid(x, y)</span>
+    <span class="s0">h5.add_scalar(</span><span class="s3">'rho'</span><span class="s0">, m[rho])</span>
+    <span class="s0">h5.add_vector(</span><span class="s3">'velocity'</span><span class="s0">, [m[qx], m[qy]])</span>
+    <span class="s0">h5.save()</span>
+
+<span class="s2">def </span><span class="s0">main():</span>
+    <span class="s1"># parameters</span>
+    <span class="s0">xmin, xmax, ymin, ymax = </span><span class="s4">0.</span><span class="s0">, </span><span class="s4">2.</span><span class="s0">, </span><span class="s4">0.</span><span class="s0">, </span><span class="s4">1.</span>
+    <span class="s0">radius = </span><span class="s4">0.125</span>
+    <span class="s2">if </span><span class="s0">h5_save:</span>
+        <span class="s0">dx = </span><span class="s4">1. </span><span class="s0">/ </span><span class="s4">512  </span><span class="s1"># spatial step</span>
+    <span class="s2">else</span><span class="s0">:</span>
+        <span class="s0">dx = </span><span class="s4">1. </span><span class="s0">/ </span><span class="s4">128</span>
+    <span class="s0">la = </span><span class="s4">1.  </span><span class="s1"># velocity of the scheme</span>
+    <span class="s0">rhoo = </span><span class="s4">1.</span>
+    <span class="s0">uo = </span><span class="s4">0.05</span>
+    <span class="s0">mu = </span><span class="s4">5.e-5</span>
+    <span class="s0">zeta = </span><span class="s4">10 </span><span class="s0">* mu</span>
+    <span class="s0">dummy = </span><span class="s4">3.0 </span><span class="s0">/ (la * rhoo * dx)</span>
+    <span class="s0">s1 = </span><span class="s4">1.0 </span><span class="s0">/ (</span><span class="s4">0.5 </span><span class="s0">+ zeta * dummy)</span>
+    <span class="s0">s2 = </span><span class="s4">1.0 </span><span class="s0">/ (</span><span class="s4">0.5 </span><span class="s0">+ mu * dummy)</span>
+    <span class="s0">s = [</span><span class="s4">0.</span><span class="s0">, </span><span class="s4">0.</span><span class="s0">, </span><span class="s4">0.</span><span class="s0">, s1, s1, s1, s1, s2, s2]</span>
+    <span class="s0">dummy = </span><span class="s4">1. </span><span class="s0">/ (LA ** </span><span class="s4">2 </span><span class="s0">* rhoo)</span>
+    <span class="s0">qx2 = dummy * qx ** </span><span class="s4">2</span>
+    <span class="s0">qy2 = dummy * qy ** </span><span class="s4">2</span>
+    <span class="s0">q2 = qx2 + qy2</span>
+    <span class="s0">qxy = dummy * qx * qy</span>
+
+    <span class="s0">dico = {</span>
+        <span class="s3">'box'</span><span class="s0">: {</span>
+            <span class="s3">'x'</span><span class="s0">: [xmin, xmax],</span>
+            <span class="s3">'y'</span><span class="s0">: [ymin, ymax],</span>
+            <span class="s3">'label'</span><span class="s0">: [</span><span class="s4">0</span><span class="s0">, </span><span class="s4">1</span><span class="s0">, </span><span class="s4">0</span><span class="s0">, </span><span class="s4">0</span><span class="s0">]</span>
+        <span class="s0">},</span>
+        <span class="s3">'elements'</span><span class="s0">: [pylbm.Circle([</span><span class="s4">.3</span><span class="s0">, </span><span class="s4">0.5 </span><span class="s0">* (ymin + ymax) + </span><span class="s4">2 </span><span class="s0">* dx], radius, label=</span><span class="s4">2</span><span class="s0">)],</span>
+        <span class="s3">'space_step'</span><span class="s0">: dx,</span>
+        <span class="s3">'scheme_velocity'</span><span class="s0">: LA,</span>
+        <span class="s3">'schemes'</span><span class="s0">: [</span>
+            <span class="s0">{</span>
+                <span class="s3">'velocities'</span><span class="s0">: list(range(</span><span class="s4">9</span><span class="s0">)),</span>
+                <span class="s3">'polynomials'</span><span class="s0">: [</span>
+                    <span class="s4">1</span><span class="s0">,</span>
+                    <span class="s0">LA * X, LA * Y,</span>
+                    <span class="s4">3 </span><span class="s0">* (X ** </span><span class="s4">2 </span><span class="s0">+ Y ** </span><span class="s4">2</span><span class="s0">) - </span><span class="s4">4</span><span class="s0">,</span>
+                    <span class="s4">0.5 </span><span class="s0">* (</span><span class="s4">9 </span><span class="s0">* (X ** </span><span class="s4">2 </span><span class="s0">+ Y ** </span><span class="s4">2</span><span class="s0">) ** </span><span class="s4">2 </span><span class="s0">- </span><span class="s4">21 </span><span class="s0">* (X ** </span><span class="s4">2 </span><span class="s0">+ Y ** </span><span class="s4">2</span><span class="s0">) + </span><span class="s4">8</span><span class="s0">),</span>
+                    <span class="s4">3 </span><span class="s0">* X * (X ** </span><span class="s4">2 </span><span class="s0">+ Y ** </span><span class="s4">2</span><span class="s0">) - </span><span class="s4">5 </span><span class="s0">* X, </span><span class="s4">3 </span><span class="s0">* Y * (X ** </span><span class="s4">2 </span><span class="s0">+ Y ** </span><span class="s4">2</span><span class="s0">) - </span><span class="s4">5 </span><span class="s0">* Y,</span>
+                    <span class="s0">X ** </span><span class="s4">2 </span><span class="s0">- Y ** </span><span class="s4">2</span><span class="s0">, X * Y</span>
+                <span class="s0">],</span>
+                <span class="s3">'relaxation_parameters'</span><span class="s0">: s,</span>
+                <span class="s3">'equilibrium'</span><span class="s0">: [</span>
+                    <span class="s0">rho,</span>
+                    <span class="s0">qx, qy,</span>
+                    <span class="s0">-</span><span class="s4">2 </span><span class="s0">* rho + </span><span class="s4">3 </span><span class="s0">* q2,</span>
+                    <span class="s0">rho - </span><span class="s4">3 </span><span class="s0">* q2,</span>
+                    <span class="s0">-qx / LA, -qy / LA,</span>
+                    <span class="s0">qx2 - qy2, qxy</span>
+                <span class="s0">],</span>
+                <span class="s3">'conserved_moments'</span><span class="s0">: [rho, qx, qy],</span>
+            <span class="s0">},</span>
+        <span class="s0">],</span>
+        <span class="s3">'init'</span><span class="s0">: {rho: rhoo,</span>
+                 <span class="s0">qx: rhoo * uo,</span>
+                 <span class="s0">qy: </span><span class="s4">0.</span>
+                 <span class="s0">},</span>
+        <span class="s3">'parameters'</span><span class="s0">: {LA: la},</span>
+        <span class="s3">'boundary_conditions'</span><span class="s0">: {</span>
+            <span class="s4">0</span><span class="s0">: {</span><span class="s3">'method'</span><span class="s0">: {</span><span class="s4">0</span><span class="s0">: pylbm.bc.BouzidiBounceBack}, </span><span class="s3">'value'</span><span class="s0">: (bc_rect, (rhoo, uo))},</span>
+            <span class="s4">1</span><span class="s0">: {</span><span class="s3">'method'</span><span class="s0">: {</span><span class="s4">0</span><span class="s0">: pylbm.bc.NeumannX}},</span>
+            <span class="s4">2</span><span class="s0">: {</span><span class="s3">'method'</span><span class="s0">: {</span><span class="s4">0</span><span class="s0">: pylbm.bc.BouzidiBounceBack}},</span>
+        <span class="s0">},</span>
+        <span class="s3">'generator'</span><span class="s0">: </span><span class="s3">&quot;cython&quot;</span><span class="s0">,</span>
+    <span class="s0">}</span>
+
+    <span class="s0">sol = pylbm.Simulation(dico)</span>
+
+    <span class="s0">Re = rhoo * uo * </span><span class="s4">2 </span><span class="s0">* radius / mu</span>
+    <span class="s0">print(</span><span class="s3">&quot;Reynolds number {0:10.3e}&quot;</span><span class="s0">.format(Re))</span>
+
+    <span class="s0">x, y = sol.domain.x, sol.domain.y</span>
+
+    <span class="s2">if </span><span class="s0">h5_save:</span>
+        <span class="s0">Tf = </span><span class="s4">500.</span>
+        <span class="s0">im = </span><span class="s4">0</span>
+        <span class="s0">l = Tf / sol.dt / </span><span class="s4">64</span>
+        <span class="s0">printProgress(im, l, prefix=</span><span class="s3">'Progress:'</span><span class="s0">, suffix=</span><span class="s3">'Complete'</span><span class="s0">, barLength=</span><span class="s4">50</span><span class="s0">)</span>
+        <span class="s0">filename = </span><span class="s3">'Karman'</span>
+        <span class="s0">path = </span><span class="s3">'./data_' </span><span class="s0">+ filename</span>
+        <span class="s0">save(x, y, sol.m, im)</span>
+        <span class="s2">while </span><span class="s0">sol.t &lt; Tf:</span>
+            <span class="s2">for </span><span class="s0">k </span><span class="s2">in </span><span class="s0">range(</span><span class="s4">64</span><span class="s0">):</span>
+                <span class="s0">sol.one_time_step()</span>
+            <span class="s0">im += </span><span class="s4">1</span>
+            <span class="s0">printProgress(im, l, prefix=</span><span class="s3">'Progress:'</span><span class="s0">, suffix=</span><span class="s3">'Complete'</span><span class="s0">, barLength=</span><span class="s4">50</span><span class="s0">)</span>
+            <span class="s0">save(sol.mpi_topo, x, y, sol.m, im)</span>
+    <span class="s2">else</span><span class="s0">:</span>
+        <span class="s0">viewer = pylbm.viewer.matplotlib_viewer</span>
+        <span class="s0">fig = viewer.Fig()</span>
+        <span class="s0">ax = fig[</span><span class="s4">0</span><span class="s0">]</span>
+        <span class="s0">ax.ellipse([</span><span class="s4">.3 </span><span class="s0">/ dx, </span><span class="s4">0.5 </span><span class="s0">* (ymin + ymax) / dx + </span><span class="s4">2</span><span class="s0">], [radius / dx, radius / dx], </span><span class="s3">'r'</span><span class="s0">)</span>
+        <span class="s0">image = ax.image(vorticity(sol), cmap=</span><span class="s3">'cubehelix'</span><span class="s0">, clim=[</span><span class="s4">0</span><span class="s0">, </span><span class="s4">.05</span><span class="s0">])</span>
+
+        <span class="s2">def </span><span class="s0">update(iframe):</span>
+            <span class="s0">nrep = </span><span class="s4">64</span>
+            <span class="s2">for </span><span class="s0">i </span><span class="s2">in </span><span class="s0">range(nrep):</span>
+                <span class="s0">sol.one_time_step()</span>
+            <span class="s0">image.set_data(vorticity(sol))</span>
+            <span class="s0">ax.title = </span><span class="s3">&quot;Solution t={0:f}&quot;</span><span class="s0">.format(sol.t)</span>
+
+        <span class="s1"># run the simulation</span>
+        <span class="s0">fig.animate(update, interval=</span><span class="s4">1</span><span class="s0">)</span>
+        <span class="s0">fig.show()</span>
+
+
+
+<span class="s2">if </span><span class="s0">__name__ == </span><span class="s3">&quot;__main__&quot;</span><span class="s0">:</span>
+    <span class="s0">main()</span>
+</pre>
+</body>
+</html>
